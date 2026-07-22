@@ -1,0 +1,88 @@
+// Zyrix Agency Platform — Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  geminiApiKey String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leads        Lead[]
+  screenshots  Screenshot[]
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  businessName    String
+  category        String?
+  address         String?
+  phone           String?
+  email           String?
+  whatsapp        String?
+  websiteStatus   String   @default("none") // none | basic | outdated
+  osmId           String?
+  lat             Float?
+  lng             Float?
+
+  // Pipeline state
+  status          String   @default("discovered") // discovered | contacted | approved | declined
+  approved        Boolean  @default(false)
+  projectDeliveryDate DateTime?
+
+  // Conversation history (JSON-stringified)
+  conversationHistory String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  outrechMessages Outreach[]
+  screenshots     Screenshot[]
+}
+
+model Outreach {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  channel   String   // email | whatsapp
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model Screenshot {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId          String?
+  lead            Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  fileName        String
+  fileType        String
+  fileSize        Int
+  fileData        String   // base64-encoded
+
+  // Gemini extraction
+  extractedText   String?
+  requirements    String?
+  features        String?
+  targetAudience  String?
+
+  // Generated master prompt
+  masterPrompt    String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
