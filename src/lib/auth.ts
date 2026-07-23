@@ -48,14 +48,24 @@ export async function ensureFounderUser(): Promise<void> {
         if (existing.name !== FOUNDER_NAME) {
           dataToUpdate.name = FOUNDER_NAME;
         }
-        if (existing.geminiModel === "gemini-2.0-flash" || !existing.geminiModel) {
+        if ("geminiModel" in existing && (existing.geminiModel === "gemini-2.0-flash" || !existing.geminiModel)) {
           dataToUpdate.geminiModel = "gemini-2.5-flash";
         }
         if (Object.keys(dataToUpdate).length > 0) {
-          await db.user.update({
-            where: { email: FOUNDER_EMAIL },
-            data: dataToUpdate,
-          });
+          try {
+            await db.user.update({
+              where: { email: FOUNDER_EMAIL },
+              data: dataToUpdate,
+            });
+          } catch {
+            delete dataToUpdate.geminiModel;
+            if (Object.keys(dataToUpdate).length > 0) {
+              await db.user.update({
+                where: { email: FOUNDER_EMAIL },
+                data: dataToUpdate,
+              });
+            }
+          }
         }
       }
     } catch (err) {
