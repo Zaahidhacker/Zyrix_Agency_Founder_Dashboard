@@ -202,7 +202,7 @@ export function LeadDiscovery() {
         <div className="flex items-start justify-between flex-wrap gap-4 mb-6">
           <div>
             <h2 className="font-display text-2xl tracking-tight text-zyrix-ink">
-              Find businesses without a website
+              Hello Zaahid — Find businesses without a website
             </h2>
             <p className="text-sm text-zyrix-ink-soft mt-1.5 max-w-xl">
               Powered by the free OpenStreetMap Overpass API. Results are

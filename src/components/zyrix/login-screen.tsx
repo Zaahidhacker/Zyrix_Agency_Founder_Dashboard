@@ -11,7 +11,7 @@ import { Loader2, Lock, Mail, ArrowRight } from "lucide-react";
 export function LoginScreen() {
   const { login } = useSession();
   const [email, setEmail] = useState("zyrix@founder.agency");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState("Zaahid2290");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

@@ -17,8 +17,14 @@ export interface GeminiVisionParams {
   model?: string;
 }
 
-const DEFAULT_TEXT_MODEL = "gemini-2.0-flash";
-const DEFAULT_VISION_MODEL = "gemini-2.0-flash";
+// Modern default model is gemini-2.5-flash. Fallbacks ensure zero downtime if a model hits quota limits.
+const DEFAULT_MODEL = "gemini-2.5-flash";
+const FALLBACK_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-1.5-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-pro",
+];
 
 interface GeminiPart {
   text?: string;
@@ -35,6 +41,10 @@ interface GeminiResponse {
     };
     finishReason?: string;
   }>;
+  promptFeedback?: {
+    blockReason?: string;
+    blockReasonMessage?: string;
+  };
   error?: {
     message?: string;
     code?: number;
@@ -42,52 +52,107 @@ interface GeminiResponse {
   };
 }
 
+function pickModel(model?: string): string {
+  const m = (model || DEFAULT_MODEL).trim();
+  return m || DEFAULT_MODEL;
+}
+
 async function callGemini(
   apiKey: string,
   model: string,
   contents: Array<{ role: string; parts: GeminiPart[] }>,
-  systemInstruction?: string
+  systemInstruction?: string,
+  generationConfigOverride?: Record<string, unknown>
 ): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const requestedModel = pickModel(model);
+  const modelsToTry = [
+    requestedModel,
+    ...FALLBACK_MODELS.filter((m) => m !== requestedModel),
+  ];
 
-  const body: Record<string, unknown> = {
-    contents,
-    generationConfig: {
-      temperature: 0.7,
-      topP: 0.95,
-      topK: 40,
-      maxOutputTokens: 8192,
-    },
-  };
+  let lastError: Error | null = null;
 
-  if (systemInstruction) {
-    body.systemInstruction = {
-      parts: [{ text: systemInstruction }],
-    };
+  for (const m of modelsToTry) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+
+      const body: Record<string, unknown> = {
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.95,
+          topK: 40,
+          maxOutputTokens: 8192,
+          ...(generationConfigOverride || {}),
+        },
+      };
+
+      if (systemInstruction) {
+        body.systemInstruction = {
+          parts: [{ text: systemInstruction }],
+        };
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data: GeminiResponse = await res.json();
+
+      if (!res.ok) {
+        const msg =
+          data.error?.message ||
+          `Gemini API error (HTTP ${res.status}). Please verify your API key.`;
+        
+        const lowerMsg = msg.toLowerCase();
+        if (
+          res.status === 429 ||
+          res.status === 404 ||
+          lowerMsg.includes("quota") ||
+          lowerMsg.includes("exceeded") ||
+          lowerMsg.includes("limit") ||
+          lowerMsg.includes("not found")
+        ) {
+          lastError = new Error(msg);
+          console.warn(`Gemini model ${m} failed (${msg}). Trying fallback model...`);
+          continue;
+        }
+        throw new Error(msg);
+      }
+
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        const blockReason =
+          data.promptFeedback?.blockReasonMessage ||
+          data.promptFeedback?.blockReason;
+        throw new Error(
+          blockReason
+            ? `Gemini blocked the request: ${blockReason}.`
+            : "Gemini returned no output. The request may have been blocked or the API key may be invalid."
+        );
+      }
+
+      return text;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const errStr = lastError.message.toLowerCase();
+      if (
+        errStr.includes("quota") ||
+        errStr.includes("exceeded") ||
+        errStr.includes("limit") ||
+        errStr.includes("429") ||
+        errStr.includes("404")
+      ) {
+        console.warn(`Gemini model ${m} error (${lastError.message}). Attempting next model...`);
+        continue;
+      }
+      throw lastError;
+    }
   }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const data: GeminiResponse = await res.json();
-
-  if (!res.ok) {
-    const msg =
-      data.error?.message ||
-      `Gemini API error (HTTP ${res.status}). Please verify your API key.`;
-    throw new Error(msg);
-  }
-
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error(
-      "Gemini returned no output. The request may have been blocked or the API key may be invalid."
-    );
-  }
-  return text;
+  throw lastError || new Error("All Gemini models failed to generate content.");
 }
 
 export async function generateText(
@@ -98,19 +163,16 @@ export async function generateText(
     prompt,
     systemInstruction,
     temperature,
-    model = DEFAULT_TEXT_MODEL,
+    model = DEFAULT_MODEL,
   } = params;
 
   return callGemini(
     apiKey,
     model,
     [{ role: "user", parts: [{ text: prompt }] }],
-    systemInstruction
-  ).then((text) => {
-    // re-call with temperature override if needed (Gemini v1beta supports generationConfig above; this is a noop for now)
-    void temperature;
-    return text;
-  });
+    systemInstruction,
+    typeof temperature === "number" ? { temperature } : undefined
+  );
 }
 
 export async function analyzeImage(
@@ -121,7 +183,7 @@ export async function analyzeImage(
     prompt,
     imageBase64,
     mimeType,
-    model = DEFAULT_VISION_MODEL,
+    model = DEFAULT_MODEL,
   } = params;
 
   return callGemini(apiKey, model, [
@@ -140,49 +202,26 @@ export async function analyzeImage(
   ]);
 }
 
-// Structured extraction helper — calls Gemini with a strict JSON output expectation
+// Structured extraction helper — calls Gemini with strict JSON output requirement
 export async function extractStructured<T = unknown>(
   apiKey: string,
   prompt: string,
+  model?: string,
   systemInstruction?: string
 ): Promise<T> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_TEXT_MODEL}:generateContent?key=${apiKey}`;
-
-  const body: Record<string, unknown> = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: {
+  const text = await callGemini(
+    apiKey,
+    model || DEFAULT_MODEL,
+    [{ role: "user", parts: [{ text: prompt }] }],
+    systemInstruction,
+    {
       temperature: 0.3,
       topP: 0.9,
       topK: 40,
       maxOutputTokens: 8192,
       responseMimeType: "application/json",
-    },
-  };
-
-  if (systemInstruction) {
-    body.systemInstruction = {
-      parts: [{ text: systemInstruction }],
-    };
-  }
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const data: GeminiResponse = await res.json();
-  if (!res.ok) {
-    throw new Error(
-      data.error?.message ||
-        `Gemini API error (HTTP ${res.status}). Verify your API key.`
-    );
-  }
-
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error("Gemini returned no extractable output.");
-  }
+    }
+  );
 
   try {
     return JSON.parse(text) as T;
@@ -195,6 +234,5 @@ export async function extractStructured<T = unknown>(
 }
 
 export function isGeminiKeySet(): Promise<boolean> {
-  // Quick check for the user's stored key — handled by auth.ts in routes
   return Promise.resolve(true);
 }

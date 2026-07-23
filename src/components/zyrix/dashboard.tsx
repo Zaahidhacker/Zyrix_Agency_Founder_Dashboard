@@ -134,6 +134,11 @@ export function Dashboard() {
                 Agency OS
               </p>
             </div>
+            <div className="hidden md:flex items-center pl-3 border-l border-zyrix-line">
+              <span className="font-display text-sm font-semibold text-zyrix-ink">
+                Hello {user.name || "Zaahid"}
+              </span>
+            </div>
           </div>
 
           {/* Tabs */}

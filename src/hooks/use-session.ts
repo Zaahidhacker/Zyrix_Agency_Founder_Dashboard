@@ -3,8 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 
 export interface SessionUser {
-  userId: string;
+  id?: string;
+  userId?: string;
   email: string;
+  name?: string;
 }
 
 export interface SessionState {

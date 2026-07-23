@@ -15,6 +15,7 @@ model User {
   passwordHash String
   name         String?
   geminiApiKey String?
+  geminiModel  String?  @default("gemini-2.5-flash")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

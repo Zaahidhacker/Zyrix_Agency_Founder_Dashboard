@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ensureFounderUser, requireUser, getGeminiKey } from "@/lib/auth";
+import { ensureFounderUser, requireUser, getGeminiKey, getGeminiModel } from "@/lib/auth";
 import { generateText } from "@/lib/gemini";
 import { db } from "@/lib/db";
 
@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     await ensureFounderUser();
     const user = await requireUser();
     const apiKey = await getGeminiKey();
+    const model = await getGeminiModel();
 
     if (!apiKey) {
       return NextResponse.json(
@@ -68,6 +69,7 @@ Output the message only — no commentary, no markdown fences.`;
 
     const content = await generateText({
       apiKey,
+      model,
       prompt,
       systemInstruction: SYSTEM_INSTRUCTION,
       temperature: 0.8,

@@ -12,7 +12,7 @@ export async function GET() {
     }
     const key = await getGeminiKey();
     return NextResponse.json({
-      user: { id: user.userId, email: user.email },
+      user: { id: user.userId, email: user.email, name: user.name },
       geminiKeySet: Boolean(key),
     });
   } catch {

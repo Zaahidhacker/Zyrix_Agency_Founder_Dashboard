@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ensureFounderUser, requireUser, getGeminiKey } from "@/lib/auth";
+import { ensureFounderUser, requireUser, getGeminiKey, getGeminiModel } from "@/lib/auth";
 import { analyzeImage } from "@/lib/gemini";
 import { db } from "@/lib/db";
 import { buildMasterPrompt } from "@/lib/master-prompt";
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     await ensureFounderUser();
     const user = await requireUser();
     const apiKey = await getGeminiKey();
+    const model = await getGeminiModel();
 
     if (!apiKey) {
       return NextResponse.json(
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
     // Call Gemini vision for extraction
     const raw = await analyzeImage({
       apiKey,
+      model,
       prompt: EXTRACTION_PROMPT,
       imageBase64: screenshot.fileData,
       mimeType: screenshot.fileType,
